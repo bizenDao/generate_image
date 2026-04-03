@@ -1,0 +1,6 @@
+.env
+test/output/
+test/input/
+__pycache__/
+*.pyc
+.DS_Store

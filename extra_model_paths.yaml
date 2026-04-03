@@ -1,0 +1,16 @@
+comfyui:
+  base_path: /ComfyUI
+  diffusion_models: |
+    models/diffusion_models/
+    /runpod-volume/models/
+  text_encoders: |
+    models/text_encoders/
+  clip_vision: |
+    models/clip_vision/
+  vae: |
+    models/vae/
+  ipadapter: |
+    models/ipadapter/
+  loras: |
+    models/loras/
+    /runpod-volume/loras/
