@@ -7,3 +7,5 @@ if [ -z "$RUNPOD_API_KEY" ] || [ -z "$RUNPOD_ENDPOINT_ID" ]; then
 echo "ERROR: RUNPOD_API_KEY and RUNPOD_ENDPOINT_ID must be set"
 -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
 -H "Authorization: Bearer ${RUNPOD_API_KEY}")
+RUNPOD_API_KEY=your-actual-api-key
+Authorization: Bearer {RUNPOD_API_KEY}
