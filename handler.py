@@ -11,13 +11,41 @@ import os
 import sys
 import time
 import base64
+import binascii
 import uuid
 import shutil
+import subprocess
 import traceback
+import logging
 import websocket
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger(__name__)
 
 SERVER_ADDRESS = os.environ.get("SERVER_ADDRESS", "127.0.0.1")
 COMFYUI_PORT = "8188"
+
+DEFAULT_NEGATIVE_PROMPT = (
+    "lowres, bad anatomy, bad hands, text, error, missing fingers, "
+    "extra digit, fewer digits, cropped, worst quality, low quality, "
+    "normal quality, jpeg artifacts, signature, watermark, username, blurry, "
+    "deformed, ugly, duplicate, morbid, mutilated"
+)
+
+
+def to_nearest_multiple_of_16(value, name="value"):
+    """Round value to nearest multiple of 16 with validation."""
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be a number, got: {value}")
+    if value < 64 or value > 4096:
+        raise ValueError(f"{name} must be between 64 and 4096, got: {value}")
+    return round(value / 16) * 16
 
 
 def process_input(input_data, temp_dir, output_filename, input_type):
@@ -33,21 +61,39 @@ def process_input(input_data, temp_dir, output_filename, input_type):
         if not os.path.exists(src_path):
             raise FileNotFoundError(f"File not found: {src_path}")
         shutil.copy2(src_path, output_path)
+        logger.info(f"Input loaded from path: {src_path}")
         return output_path
 
     elif url_key in input_data and input_data[url_key]:
         url = input_data[url_key]
-        os.system(f'wget -q -O "{output_path}" "{url}"')
+        logger.info(f"Downloading from URL: {url}")
+        try:
+            result = subprocess.run(
+                ["wget", "-q", "-O", output_path, url],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"wget failed (exit {result.returncode}): {result.stderr}")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Download timed out after 120s: {url}")
         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            raise RuntimeError(f"Failed to download: {url}")
+            raise RuntimeError(f"Downloaded file is empty or missing: {url}")
+        logger.info(f"Downloaded: {os.path.getsize(output_path)} bytes")
         return output_path
 
     elif base64_key in input_data and input_data[base64_key]:
         data = input_data[base64_key]
         if "," in data:
             data = data.split(",", 1)[1]
+        try:
+            decoded = base64.b64decode(data)
+        except (binascii.Error, ValueError) as e:
+            raise ValueError(f"Base64 decode failed: {e}")
+        if len(decoded) == 0:
+            raise ValueError("Base64 data is empty")
         with open(output_path, "wb") as f:
-            f.write(base64.b64decode(data))
+            f.write(decoded)
+        logger.info(f"Input loaded from base64: {len(decoded)} bytes")
         return output_path
 
     return None
@@ -60,9 +106,11 @@ def wait_for_comfyui():
         try:
             req = urllib.request.Request(url)
             urllib.request.urlopen(req, timeout=5)
-            print(f"ComfyUI ready after {attempt + 1} attempts", flush=True)
+            logger.info(f"ComfyUI ready after {attempt + 1} attempts")
             return True
         except Exception:
+            if (attempt + 1) % 30 == 0:
+                logger.info(f"Waiting for ComfyUI... ({attempt + 1}/180)")
             time.sleep(1)
     raise RuntimeError("ComfyUI failed to start within 180 seconds")
 
@@ -73,12 +121,15 @@ def connect_websocket():
     ws_url = f"ws://{SERVER_ADDRESS}:{COMFYUI_PORT}/ws?clientId={client_id}"
     for attempt in range(36):
         try:
-            ws = websocket.create_connection(ws_url, timeout=10)
-            print(f"WebSocket connected after {attempt + 1} attempts", flush=True)
+            ws = websocket.WebSocket()
+            ws.connect(ws_url, timeout=10)
+            logger.info(f"WebSocket connected after {attempt + 1} attempts")
             return ws, client_id
-        except Exception:
+        except Exception as e:
+            if (attempt + 1) % 6 == 0:
+                logger.warning(f"WebSocket retry {attempt + 1}/36: {e}")
             time.sleep(5)
-    raise RuntimeError("WebSocket connection failed after 36 attempts")
+    raise RuntimeError("WebSocket connection failed after 36 attempts (3 minutes)")
 
 
 def queue_prompt(workflow, client_id):
@@ -129,7 +180,7 @@ def upload_image(filepath, comfyui_filename):
     )
     resp = urllib.request.urlopen(req)
     result = json.loads(resp.read())
-    print(f"Uploaded image: {result}", flush=True)
+    logger.info(f"Uploaded image: {result}")
     return result
 
 
@@ -155,7 +206,14 @@ def apply_lora_to_workflow(workflow, lora_pairs):
         weight = lora.get("weight", 1.0)
 
         if not lora_name:
+            logger.warning(f"LoRA pair {i}: name is empty, skipping")
             continue
+
+        try:
+            weight = float(weight)
+        except (TypeError, ValueError):
+            logger.warning(f"LoRA pair {i}: invalid weight '{weight}', using 1.0")
+            weight = 1.0
 
         workflow[node_id] = {
             "class_type": "LoraLoaderModelOnly",
@@ -166,6 +224,7 @@ def apply_lora_to_workflow(workflow, lora_pairs):
             }
         }
         prev_model_output = [node_id, 0]
+        logger.info(f"LoRA applied: {lora_name} (weight={weight})")
 
     # Point sampler to the last LoRA output
     workflow["11"]["inputs"]["model"] = prev_model_output
@@ -175,9 +234,12 @@ def apply_lora_to_workflow(workflow, lora_pairs):
 
 def handler(job):
     """RunPod serverless handler."""
+    job_id = job.get("id", "unknown")
     input_data = job.get("input", {})
-    temp_dir = f"/tmp/generate_image_{job['id']}"
+    temp_dir = f"/tmp/generate_image_{job_id}"
     os.makedirs(temp_dir, exist_ok=True)
+
+    logger.info(f"Job started: {job_id}")
 
     try:
         # Validate required inputs
@@ -190,26 +252,37 @@ def handler(job):
         if not image_path:
             return {"error": "Reference image is required (image_path, image_url, or image_base64)"}
 
-        # Parameters
-        negative_prompt = input_data.get("negative_prompt", "")
-        width = input_data.get("width", 1024)
-        height = input_data.get("height", 1024)
-        steps = input_data.get("steps", 20)
-        seed = input_data.get("seed", 42)
-        guidance = input_data.get("guidance", 3.5)
-        ip_adapter_weight = input_data.get("ip_adapter_weight", 0.8)
+        # Parameters with validation
+        negative_prompt = input_data.get("negative_prompt", DEFAULT_NEGATIVE_PROMPT)
+        width = to_nearest_multiple_of_16(input_data.get("width", 1024), "width")
+        height = to_nearest_multiple_of_16(input_data.get("height", 1024), "height")
+
+        try:
+            steps = int(input_data.get("steps", 20))
+            seed = int(input_data.get("seed", 42))
+            guidance = float(input_data.get("guidance", 3.5))
+            ip_adapter_weight = float(input_data.get("ip_adapter_weight", 0.8))
+            quality = int(input_data.get("quality", 90))
+        except (TypeError, ValueError) as e:
+            return {"error": f"Invalid parameter type: {e}"}
+
+        if not (1 <= steps <= 100):
+            return {"error": f"steps must be between 1 and 100, got: {steps}"}
+        if not (0.0 <= ip_adapter_weight <= 2.0):
+            return {"error": f"ip_adapter_weight must be between 0.0 and 2.0, got: {ip_adapter_weight}"}
+        if not (1 <= quality <= 100):
+            return {"error": f"quality must be between 1 and 100, got: {quality}"}
+
         lora_pairs = input_data.get("lora_pairs", [])
-        quality = input_data.get("quality", 90)
 
-        # Round dimensions to nearest multiple of 16
-        width = round(width / 16) * 16
-        height = round(height / 16) * 16
-
-        print(f"Generating image: {width}x{height}, steps={steps}, seed={seed}, "
-              f"guidance={guidance}, ip_weight={ip_adapter_weight}", flush=True)
+        logger.info(
+            f"Parameters: {width}x{height}, steps={steps}, seed={seed}, "
+            f"guidance={guidance}, ip_weight={ip_adapter_weight}, "
+            f"loras={len(lora_pairs)}"
+        )
 
         # Upload reference image to ComfyUI
-        comfyui_image_name = f"ref_{job['id']}.png"
+        comfyui_image_name = f"ref_{job_id}.png"
         upload_image(image_path, comfyui_image_name)
 
         # Load workflow
@@ -217,21 +290,14 @@ def handler(job):
             workflow = json.load(f)
 
         # Set parameters in workflow
-        # Node 4: Positive prompt
         workflow["4"]["inputs"]["text"] = prompt
-        # Node 5: Negative prompt
         workflow["5"]["inputs"]["text"] = negative_prompt
-        # Node 6: Reference image
         workflow["6"]["inputs"]["image"] = comfyui_image_name
-        # Node 9: IP-Adapter weight
         workflow["9"]["inputs"]["weight"] = ip_adapter_weight
-        # Node 10: Image dimensions
         workflow["10"]["inputs"]["width"] = width
         workflow["10"]["inputs"]["height"] = height
-        # Node 11: Sampler settings
         workflow["11"]["inputs"]["seed"] = seed
         workflow["11"]["inputs"]["steps"] = steps
-        # Node 14: Guidance scale
         workflow["14"]["inputs"]["value"] = guidance
 
         # Apply LoRA if specified
@@ -248,7 +314,7 @@ def handler(job):
             if not prompt_id:
                 return {"error": f"Failed to queue prompt: {result}"}
 
-            print(f"Queued prompt: {prompt_id}", flush=True)
+            logger.info(f"Queued prompt: {prompt_id}")
 
             # Wait for completion via WebSocket
             while True:
@@ -258,11 +324,16 @@ def handler(job):
                     msg_type = data.get("type")
                     if msg_type == "executing":
                         exec_data = data.get("data", {})
-                        if exec_data.get("prompt_id") == prompt_id and exec_data.get("node") is None:
-                            print("Execution completed", flush=True)
-                            break
+                        node = exec_data.get("node")
+                        if exec_data.get("prompt_id") == prompt_id:
+                            if node is None:
+                                logger.info("Execution completed")
+                                break
+                            else:
+                                logger.info(f"Executing node: {node}")
                     elif msg_type == "execution_error":
                         error_data = data.get("data", {})
+                        logger.error(f"Execution error: {error_data}")
                         return {"error": f"ComfyUI execution error: {error_data}"}
 
             # Get output image
@@ -300,12 +371,14 @@ def handler(job):
             # Encode to Base64
             b64_image = base64.b64encode(jpeg_data).decode("utf-8")
 
+            logger.info(f"Job completed: {job_id} (output {len(jpeg_data)} bytes)")
             return {"image": f"data:image/jpeg;base64,{b64_image}"}
 
         finally:
             ws.close()
 
     except Exception as e:
+        logger.error(f"Job failed: {job_id} - {e}")
         traceback.print_exc()
         return {"error": str(e)}
     finally:
