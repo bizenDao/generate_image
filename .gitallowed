@@ -1,2 +1,9 @@
 RUNPOD_API_KEY=your-api-key
 self.api_key = runpod_api_key
+runpod_api_key=os.environ["RUNPOD_API_KEY"],
+def __init__(self, runpod_endpoint_id: str, runpod_api_key: str):
+"Authorization": f"Bearer {self.api_key}",
+if [ -z "$RUNPOD_API_KEY" ] || [ -z "$RUNPOD_ENDPOINT_ID" ]; then
+echo "ERROR: RUNPOD_API_KEY and RUNPOD_ENDPOINT_ID must be set"
+-H "Authorization: Bearer ${RUNPOD_API_KEY}" \
+-H "Authorization: Bearer ${RUNPOD_API_KEY}")
