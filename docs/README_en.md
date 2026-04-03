@@ -1,5 +1,7 @@
 # generate_image
 
+[日本語](../README.md)
+
 Image generation API using FLUX.1 dev + IP-Adapter on RunPod Serverless.
 
 ## Overview

@@ -1,5 +1,7 @@
 # generate_image
 
+[English](docs/README_en.md)
+
 FLUX.1 dev + IP-Adapter による参照画像ベースの画像生成API（RunPod Serverless）
 
 ## 概要
