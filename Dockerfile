@@ -17,40 +17,35 @@ RUN cd /ComfyUI/custom_nodes/ComfyUI_IPAdapter_plus && \
     cd /ComfyUI/custom_nodes/ComfyUI-GGUF && \
     pip install -r requirements.txt || true
 
-# Install handler dependencies (huggingface_hub must be installed before model downloads)
-RUN pip install runpod websocket-client Pillow "huggingface_hub[hf_transfer]"
+# Install handler dependencies
+RUN pip install runpod websocket-client Pillow
 
 # Download FLUX.1 dev fp8 model
 RUN mkdir -p /ComfyUI/models/diffusion_models && \
-    python -m huggingface_hub.commands.huggingface_cli download Comfy-Org/flux1-dev \
-    flux1-dev-fp8.safetensors \
-    --local-dir /ComfyUI/models/diffusion_models
+    wget -q https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors \
+    -O /ComfyUI/models/diffusion_models/flux1-dev-fp8.safetensors
 
 # Download text encoders
 RUN mkdir -p /ComfyUI/models/text_encoders && \
-    python -m huggingface_hub.commands.huggingface_cli download Comfy-Org/flux_text_encoders \
-    t5xxl_fp8_e4m3fn.safetensors \
-    clip_l.safetensors \
-    --local-dir /ComfyUI/models/text_encoders
+    wget -q https://huggingface.co/Comfy-Org/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors \
+    -O /ComfyUI/models/text_encoders/t5xxl_fp8_e4m3fn.safetensors && \
+    wget -q https://huggingface.co/Comfy-Org/flux_text_encoders/resolve/main/clip_l.safetensors \
+    -O /ComfyUI/models/text_encoders/clip_l.safetensors
 
 # Download VAE
 RUN mkdir -p /ComfyUI/models/vae && \
-    python -m huggingface_hub.commands.huggingface_cli download black-forest-labs/FLUX.1-dev \
-    ae.safetensors \
-    --local-dir /ComfyUI/models/vae
+    wget -q https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/ae.safetensors \
+    -O /ComfyUI/models/vae/ae.safetensors
 
 # Download CLIP Vision for IP-Adapter
 RUN mkdir -p /ComfyUI/models/clip_vision && \
-    python -m huggingface_hub.commands.huggingface_cli download Comfy-Org/sigclip_vision_384 \
-    sigclip_vision_patch14_384.safetensors \
-    --local-dir /ComfyUI/models/clip_vision
+    wget -q https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors \
+    -O /ComfyUI/models/clip_vision/sigclip_vision_patch14_384.safetensors
 
 # Download IP-Adapter model for FLUX
 RUN mkdir -p /ComfyUI/models/ipadapter && \
-    python -m huggingface_hub.commands.huggingface_cli download InstantX/FLUX.1-dev-IP-Adapter \
-    ip-adapter.bin \
-    --local-dir /ComfyUI/models/ipadapter && \
-    mv /ComfyUI/models/ipadapter/ip-adapter.bin /ComfyUI/models/ipadapter/ip-adapter_flux.safetensors
+    wget -q https://huggingface.co/InstantX/FLUX.1-dev-IP-Adapter/resolve/main/ip-adapter.bin \
+    -O /ComfyUI/models/ipadapter/ip-adapter_flux.safetensors
 
 # Copy files
 COPY handler.py /handler.py
@@ -58,8 +53,5 @@ COPY flux_ipadapter_api.json /flux_ipadapter_api.json
 COPY extra_model_paths.yaml /ComfyUI/extra_model_paths.yaml
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-
-# Set environment
-ENV HF_HUB_ENABLE_HF_TRANSFER=1
 
 ENTRYPOINT ["/entrypoint.sh"]
