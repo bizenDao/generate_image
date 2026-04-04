@@ -2,7 +2,7 @@
   "1": {
     "class_type": "CheckpointLoaderSimple",
     "inputs": {
-      "ckpt_name": "ponyDiffusionV6XL.safetensors"
+      "ckpt_name": "momoiro-pony-v15.safetensors"
     }
   },
   "2": {

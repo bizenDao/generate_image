@@ -14,10 +14,10 @@ RUN cd /ComfyUI/custom_nodes && \
 # Install handler dependencies
 RUN pip install runpod websocket-client Pillow
 
-# Download Pony Diffusion V6 XL (~6.5GB, public)
+# Download Momoiro Pony v1.5 (~6.5GB, public)
 RUN mkdir -p /ComfyUI/models/checkpoints && \
-    wget -q https://huggingface.co/AstraliteHeart/pony-diffusion-v6/resolve/main/v6.safetensors \
-    -O /ComfyUI/models/checkpoints/ponyDiffusionV6XL.safetensors
+    wget -q https://huggingface.co/John6666/momoiro-pony-v15-sdxl/resolve/main/momoiro-pony-v15-sdxl.safetensors \
+    -O /ComfyUI/models/checkpoints/momoiro-pony-v15.safetensors
 
 # Copy files
 COPY handler.py /handler.py
