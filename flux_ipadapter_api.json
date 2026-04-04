@@ -64,7 +64,7 @@
       "image": ["6", 0],
       "clip_vision": ["7", 0],
       "weight": 0.8,
-      "weight_type": "linear",
+      "weight_type": "standard",
       "start_at": 0.0,
       "end_at": 1.0
     }
@@ -114,7 +114,7 @@
     "_meta": { "title": "Guidance Scale" },
     "inputs": {
       "conditioning": ["4", 0],
-      "value": 3.5
+      "guidance": 3.5
     }
   }
 }

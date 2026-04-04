@@ -298,7 +298,7 @@ def handler(job):
         workflow["10"]["inputs"]["height"] = height
         workflow["11"]["inputs"]["seed"] = seed
         workflow["11"]["inputs"]["steps"] = steps
-        workflow["14"]["inputs"]["value"] = guidance
+        workflow["14"]["inputs"]["guidance"] = guidance
 
         # Apply LoRA if specified
         workflow = apply_lora_to_workflow(workflow, lora_pairs)
