@@ -2,47 +2,42 @@
 
 [English](docs/README_en.md)
 
-FLUX.1 dev + IP-Adapter による参照画像ベースの画像生成API（RunPod Serverless）
+Pony Diffusion V6 XL によるアニメ/キャラクター画像生成API（RunPod Serverless）
 
 ## 概要
 
-参照画像とテキストプロンプトから新しい画像を生成するAPI。ComfyUIバックエンドでFLUX.1 devモデルとIP-Adapterを組み合わせ、RunPod Serverless上で動作する。
+テキストプロンプトからアニメ・イラスト・キャラクター画像を生成するAPI。ComfyUIバックエンドでPony Diffusion V6 XLモデルを使用し、RunPod Serverless上で動作する。
 
 ## 機能
 
-- 参照画像からのスタイル/コンテンツ転写（IP-Adapter）
-- テキストプロンプトによる生成制御
-- LoRAサポート（最大4つ）
+- テキストからアニメ/キャラクター画像生成
+- 自動品質タグ付与（score_9, score_8_up, score_7_up）
 - JPEG出力（品質指定可能）
-- 入力方式: ファイルパス / URL / Base64
+- 軽量モデル（6.5GB）で高速生成
 
 ## API パラメータ
 
 | パラメータ | 型 | デフォルト | 説明 |
 |-----------|-----|-----------|------|
 | `prompt` | string | (必須) | 生成プロンプト |
-| `image_path/url/base64` | string | (必須) | 参照画像 |
-| `negative_prompt` | string | "" | ネガティブプロンプト |
-| `width` | int | 1024 | 画像幅（16の倍数に自動調整） |
-| `height` | int | 1024 | 画像高さ（16の倍数に自動調整） |
-| `steps` | int | 20 | 推論ステップ数 |
+| `negative_prompt` | string | (auto) | ネガティブプロンプト |
+| `width` | int | 1024 | 画像幅（8の倍数に自動調整） |
+| `height` | int | 1024 | 画像高さ（8の倍数に自動調整） |
+| `steps` | int | 25 | 推論ステップ数 |
 | `seed` | int | 42 | ランダムシード |
-| `guidance` | float | 3.5 | ガイダンススケール |
-| `ip_adapter_weight` | float | 0.8 | IP-Adapterの影響度 (0.0-1.0) |
+| `cfg` | float | 7.0 | CFGスケール |
 | `quality` | int | 90 | JPEG品質 (1-100) |
-| `lora_pairs` | array | [] | LoRA設定 |
+| `no_quality_tags` | bool | false | 品質タグ自動付与を無効化 |
 
-### LoRA設定
+## 使用例
 
 ```json
 {
-  "lora_pairs": [
-    {"name": "lora_name.safetensors", "weight": 1.0}
-  ]
+  "input": {
+    "prompt": "1girl, blue hair, cherry blossoms, garden, detailed illustration"
+  }
 }
 ```
-
-LoRAファイルは `/runpod-volume/loras/` または `/ComfyUI/models/loras/` に配置。
 
 ## セットアップ
 
@@ -56,37 +51,13 @@ docker build -t generate-image .
 
 RunPod Serverless Endpoint として Docker イメージをデプロイ。
 
-### 3. テスト
-
-```bash
-cp .env.example .env
-# .env にAPIキーとエンドポイントIDを設定
-./test/test_api.sh ./example_image.png "anime girl in a garden" 1024 1024
-```
-
-## Python クライアント
-
-```python
-from generate_image_client import GenerateImageClient
-
-client = GenerateImageClient("endpoint-id", "api-key")
-result = client.create_image(
-    image_path="./reference.png",
-    prompt="a beautiful landscape painting",
-    ip_adapter_weight=0.8,
-    guidance=3.5,
-)
-client.save_image_result(result, "./output.jpg")
-```
-
 ## 構成
 
 | コンポーネント | 詳細 |
 |--------------|------|
-| 生成モデル | FLUX.1 dev (fp8量子化) |
-| 参照画像処理 | IP-Adapter FLUX |
-| テキストエンコーダ | T5-XXL (fp8) + CLIP-L |
-| CLIP Vision | SigCLIP ViT-L/14@384 |
+| 生成モデル | Pony Diffusion V6 XL (SDXL, 6.5GB) |
+| CLIP Skip | 2 |
+| サンプラー | Euler Ancestral |
 | バックエンド | ComfyUI |
-| GPU | NVIDIA Ada 24GB |
+| GPU | NVIDIA 8GB+ |
 | 出力形式 | JPEG (Base64) |

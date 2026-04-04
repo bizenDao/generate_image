@@ -1,6 +1,6 @@
 """
-RunPod Serverless Handler for FLUX.1 dev + IP-Adapter Image Generation
-Reference image + prompt -> Generated image (JPEG, Base64)
+RunPod Serverless Handler for Pony Diffusion V6 XL Image Generation
+Text prompt -> Generated image (JPEG, Base64)
 """
 
 import runpod
@@ -11,10 +11,8 @@ import os
 import sys
 import time
 import base64
-import binascii
 import uuid
 import shutil
-import subprocess
 import traceback
 import logging
 import websocket
@@ -30,73 +28,23 @@ SERVER_ADDRESS = os.environ.get("SERVER_ADDRESS", "127.0.0.1")
 COMFYUI_PORT = "8188"
 
 DEFAULT_NEGATIVE_PROMPT = (
-    "lowres, bad anatomy, bad hands, text, error, missing fingers, "
-    "extra digit, fewer digits, cropped, worst quality, low quality, "
-    "normal quality, jpeg artifacts, signature, watermark, username, blurry, "
-    "deformed, ugly, duplicate, morbid, mutilated"
+    "score_1, score_2, score_3, lowres, bad anatomy, bad hands, text, error, "
+    "missing fingers, extra digit, fewer digits, cropped, worst quality, "
+    "low quality, jpeg artifacts, signature, watermark, username, blurry"
 )
 
+DEFAULT_QUALITY_TAGS = "score_9, score_8_up, score_7_up"
 
-def to_nearest_multiple_of_16(value, name="value"):
-    """Round value to nearest multiple of 16 with validation."""
+
+def to_nearest_multiple_of_8(value, name="value"):
+    """Round value to nearest multiple of 8 with validation."""
     try:
         value = int(value)
     except (TypeError, ValueError):
         raise ValueError(f"{name} must be a number, got: {value}")
-    if value < 64 or value > 4096:
-        raise ValueError(f"{name} must be between 64 and 4096, got: {value}")
-    return round(value / 16) * 16
-
-
-def process_input(input_data, temp_dir, output_filename, input_type):
-    """Process input from path, url, or base64."""
-    path_key = f"{input_type}_path"
-    url_key = f"{input_type}_url"
-    base64_key = f"{input_type}_base64"
-
-    output_path = os.path.join(temp_dir, output_filename)
-
-    if path_key in input_data and input_data[path_key]:
-        src_path = input_data[path_key]
-        if not os.path.exists(src_path):
-            raise FileNotFoundError(f"File not found: {src_path}")
-        shutil.copy2(src_path, output_path)
-        logger.info(f"Input loaded from path: {src_path}")
-        return output_path
-
-    elif url_key in input_data and input_data[url_key]:
-        url = input_data[url_key]
-        logger.info(f"Downloading from URL: {url}")
-        try:
-            result = subprocess.run(
-                ["wget", "-q", "-O", output_path, url],
-                capture_output=True, text=True, timeout=120,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"wget failed (exit {result.returncode}): {result.stderr}")
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Download timed out after 120s: {url}")
-        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            raise RuntimeError(f"Downloaded file is empty or missing: {url}")
-        logger.info(f"Downloaded: {os.path.getsize(output_path)} bytes")
-        return output_path
-
-    elif base64_key in input_data and input_data[base64_key]:
-        data = input_data[base64_key]
-        if "," in data:
-            data = data.split(",", 1)[1]
-        try:
-            decoded = base64.b64decode(data)
-        except (binascii.Error, ValueError) as e:
-            raise ValueError(f"Base64 decode failed: {e}")
-        if len(decoded) == 0:
-            raise ValueError("Base64 data is empty")
-        with open(output_path, "wb") as f:
-            f.write(decoded)
-        logger.info(f"Input loaded from base64: {len(decoded)} bytes")
-        return output_path
-
-    return None
+    if value < 64 or value > 2048:
+        raise ValueError(f"{name} must be between 64 and 2048, got: {value}")
+    return round(value / 8) * 8
 
 
 def wait_for_comfyui():
@@ -158,86 +106,10 @@ def get_image(filename, subfolder, folder_type):
     return resp.read()
 
 
-def upload_image(filepath, comfyui_filename):
-    """Upload image to ComfyUI input directory."""
-    import mimetypes
-    boundary = uuid.uuid4().hex
-    mime_type = mimetypes.guess_type(filepath)[0] or "image/png"
-
-    with open(filepath, "rb") as f:
-        file_data = f.read()
-
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="image"; filename="{comfyui_filename}"\r\n'
-        f"Content-Type: {mime_type}\r\n\r\n"
-    ).encode() + file_data + f"\r\n--{boundary}--\r\n".encode()
-
-    url = f"http://{SERVER_ADDRESS}:{COMFYUI_PORT}/upload/image"
-    req = urllib.request.Request(
-        url, data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}
-    )
-    resp = urllib.request.urlopen(req)
-    result = json.loads(resp.read())
-    logger.info(f"Uploaded image: {result}")
-    return result
-
-
-def apply_lora_to_workflow(workflow, lora_pairs):
-    """Apply LoRA configurations to the workflow.
-
-    Dynamically chains LoraLoaderModelOnly nodes between the IP-Adapter output
-    and the sampler input.
-    """
-    if not lora_pairs:
-        return workflow
-
-    max_loras = 4
-    lora_pairs = lora_pairs[:max_loras]
-
-    # Find the IP-Adapter output node (node 9) and sampler node (node 11)
-    # Chain: IPAdapter(9) -> LoRA1 -> LoRA2 -> ... -> KSampler(11)
-    prev_model_output = ["9", 0]  # IP-Adapter output
-
-    for i, lora in enumerate(lora_pairs):
-        node_id = str(100 + i)
-        lora_name = lora.get("name", "")
-        weight = lora.get("weight", 1.0)
-
-        if not lora_name:
-            logger.warning(f"LoRA pair {i}: name is empty, skipping")
-            continue
-
-        try:
-            weight = float(weight)
-        except (TypeError, ValueError):
-            logger.warning(f"LoRA pair {i}: invalid weight '{weight}', using 1.0")
-            weight = 1.0
-
-        workflow[node_id] = {
-            "class_type": "LoraLoaderModelOnly",
-            "inputs": {
-                "model": prev_model_output,
-                "lora_name": lora_name,
-                "strength_model": weight,
-            }
-        }
-        prev_model_output = [node_id, 0]
-        logger.info(f"LoRA applied: {lora_name} (weight={weight})")
-
-    # Point sampler to the last LoRA output
-    workflow["11"]["inputs"]["model"] = prev_model_output
-
-    return workflow
-
-
 def handler(job):
     """RunPod serverless handler."""
     job_id = job.get("id", "unknown")
     input_data = job.get("input", {})
-    temp_dir = f"/tmp/generate_image_{job_id}"
-    os.makedirs(temp_dir, exist_ok=True)
 
     logger.info(f"Job started: {job_id}")
 
@@ -247,61 +119,47 @@ def handler(job):
         if not prompt:
             return {"error": "prompt is required"}
 
-        # Process reference image
-        image_path = process_input(input_data, temp_dir, "input_image.png", "image")
-        if not image_path:
-            return {"error": "Reference image is required (image_path, image_url, or image_base64)"}
+        # Prepend quality tags unless disabled
+        if input_data.get("no_quality_tags", False):
+            full_prompt = prompt
+        else:
+            full_prompt = f"{DEFAULT_QUALITY_TAGS}, {prompt}"
+
+        negative_prompt = input_data.get("negative_prompt", DEFAULT_NEGATIVE_PROMPT)
 
         # Parameters with validation
-        negative_prompt = input_data.get("negative_prompt", DEFAULT_NEGATIVE_PROMPT)
-        width = to_nearest_multiple_of_16(input_data.get("width", 1024), "width")
-        height = to_nearest_multiple_of_16(input_data.get("height", 1024), "height")
+        width = to_nearest_multiple_of_8(input_data.get("width", 1024), "width")
+        height = to_nearest_multiple_of_8(input_data.get("height", 1024), "height")
 
         try:
-            steps = int(input_data.get("steps", 20))
+            steps = int(input_data.get("steps", 25))
             seed = int(input_data.get("seed", 42))
-            guidance = float(input_data.get("guidance", 3.5))
-            ip_adapter_weight = float(input_data.get("ip_adapter_weight", 0.8))
+            cfg = float(input_data.get("cfg", 7.0))
             quality = int(input_data.get("quality", 90))
         except (TypeError, ValueError) as e:
             return {"error": f"Invalid parameter type: {e}"}
 
         if not (1 <= steps <= 100):
             return {"error": f"steps must be between 1 and 100, got: {steps}"}
-        if not (0.0 <= ip_adapter_weight <= 2.0):
-            return {"error": f"ip_adapter_weight must be between 0.0 and 2.0, got: {ip_adapter_weight}"}
         if not (1 <= quality <= 100):
             return {"error": f"quality must be between 1 and 100, got: {quality}"}
 
-        lora_pairs = input_data.get("lora_pairs", [])
-
         logger.info(
-            f"Parameters: {width}x{height}, steps={steps}, seed={seed}, "
-            f"guidance={guidance}, ip_weight={ip_adapter_weight}, "
-            f"loras={len(lora_pairs)}"
+            f"Parameters: {width}x{height}, steps={steps}, seed={seed}, cfg={cfg}"
         )
 
-        # Upload reference image to ComfyUI
-        comfyui_image_name = f"ref_{job_id}.png"
-        upload_image(image_path, comfyui_image_name)
-
         # Load workflow
-        with open("/flux_ipadapter_api.json", "r") as f:
+        with open("/pony_v6_api.json", "r") as f:
             workflow = json.load(f)
 
         # Set parameters in workflow
-        workflow["4"]["inputs"]["text"] = prompt
-        workflow["5"]["inputs"]["text"] = negative_prompt
-        workflow["6"]["inputs"]["image"] = comfyui_image_name
-        workflow["9"]["inputs"]["weight"] = ip_adapter_weight
-        workflow["10"]["inputs"]["width"] = width
-        workflow["10"]["inputs"]["height"] = height
-        workflow["11"]["inputs"]["seed"] = seed
-        workflow["11"]["inputs"]["steps"] = steps
-        workflow["14"]["inputs"]["guidance"] = guidance
-
-        # Apply LoRA if specified
-        workflow = apply_lora_to_workflow(workflow, lora_pairs)
+        workflow["3"]["inputs"]["text"] = full_prompt
+        workflow["4"]["inputs"]["text"] = negative_prompt
+        workflow["5"]["inputs"]["width"] = width
+        workflow["5"]["inputs"]["height"] = height
+        workflow["6"]["inputs"]["seed"] = seed
+        workflow["6"]["inputs"]["steps"] = steps
+        workflow["6"]["inputs"]["cfg"] = cfg
 
         # Connect to ComfyUI
         wait_for_comfyui()
@@ -343,8 +201,8 @@ def handler(job):
 
             outputs = history[prompt_id].get("outputs", {})
 
-            # Find SaveImage node output (node 13)
-            save_node = outputs.get("13", {})
+            # Find SaveImage node output (node 8)
+            save_node = outputs.get("8", {})
             images = save_node.get("images", [])
             if not images:
                 return {"error": "No images generated"}
@@ -381,9 +239,6 @@ def handler(job):
         logger.error(f"Job failed: {job_id} - {e}")
         traceback.print_exc()
         return {"error": str(e)}
-    finally:
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
