@@ -45,7 +45,7 @@ RUN mkdir -p /ComfyUI/models/clip_vision && \
 # Download IP-Adapter model for FLUX (public)
 RUN mkdir -p /ComfyUI/models/ipadapter && \
     wget -q https://huggingface.co/InstantX/FLUX.1-dev-IP-Adapter/resolve/main/ip-adapter.bin \
-    -O /ComfyUI/models/ipadapter/ip-adapter_flux.safetensors
+    -O /ComfyUI/models/ipadapter/ip-adapter_flux.bin
 
 # Copy files
 COPY handler.py /handler.py

@@ -52,7 +52,7 @@
   "8": {
     "class_type": "IPAdapterModelLoader",
     "inputs": {
-      "ipadapter_file": "ip-adapter_flux.safetensors"
+      "ipadapter_file": "ip-adapter_flux.bin"
     }
   },
   "9": {
