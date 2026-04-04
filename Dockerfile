@@ -17,8 +17,10 @@ RUN cd /ComfyUI/custom_nodes/ComfyUI_IPAdapter_plus && \
     cd /ComfyUI/custom_nodes/ComfyUI-GGUF && \
     pip install -r requirements.txt || true
 
-# Install handler dependencies
+# Install handler dependencies (huggingface_hub must be installed before model downloads)
 RUN pip install runpod websocket-client Pillow "huggingface_hub[hf_transfer]"
+
+ENV PATH="/usr/local/bin:${PATH}"
 
 # Download FLUX.1 dev fp8 model
 RUN mkdir -p /ComfyUI/models/diffusion_models && \
