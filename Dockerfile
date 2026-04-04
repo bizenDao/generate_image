@@ -20,40 +20,31 @@ RUN cd /ComfyUI/custom_nodes/ComfyUI_IPAdapter_plus && \
 # Install handler dependencies
 RUN pip install runpod websocket-client Pillow
 
-# HF_TOKEN for gated model downloads (set via RunPod build secrets)
-ARG HF_TOKEN=""
-
-# Download FLUX.1 dev fp8 model
+# Download FLUX.1 dev fp8 model (public)
 RUN mkdir -p /ComfyUI/models/diffusion_models && \
-    wget -q --header="Authorization: Bearer ${HF_TOKEN}" \
-    https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors \
+    wget -q https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors \
     -O /ComfyUI/models/diffusion_models/flux1-dev-fp8.safetensors
 
-# Download text encoders
+# Download text encoders (ungated mirror: comfyanonymous)
 RUN mkdir -p /ComfyUI/models/text_encoders && \
-    wget -q --header="Authorization: Bearer ${HF_TOKEN}" \
-    https://huggingface.co/Comfy-Org/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors \
+    wget -q https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors \
     -O /ComfyUI/models/text_encoders/t5xxl_fp8_e4m3fn.safetensors && \
-    wget -q --header="Authorization: Bearer ${HF_TOKEN}" \
-    https://huggingface.co/Comfy-Org/flux_text_encoders/resolve/main/clip_l.safetensors \
+    wget -q https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors \
     -O /ComfyUI/models/text_encoders/clip_l.safetensors
 
-# Download VAE
+# Download VAE (ungated mirror: camenduru)
 RUN mkdir -p /ComfyUI/models/vae && \
-    wget -q --header="Authorization: Bearer ${HF_TOKEN}" \
-    https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/ae.safetensors \
+    wget -q https://huggingface.co/camenduru/FLUX.1-dev-ungated/resolve/main/ae.safetensors \
     -O /ComfyUI/models/vae/ae.safetensors
 
-# Download CLIP Vision for IP-Adapter
+# Download CLIP Vision for IP-Adapter (public)
 RUN mkdir -p /ComfyUI/models/clip_vision && \
-    wget -q --header="Authorization: Bearer ${HF_TOKEN}" \
-    https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors \
+    wget -q https://huggingface.co/Comfy-Org/sigclip_vision_384/resolve/main/sigclip_vision_patch14_384.safetensors \
     -O /ComfyUI/models/clip_vision/sigclip_vision_patch14_384.safetensors
 
-# Download IP-Adapter model for FLUX
+# Download IP-Adapter model for FLUX (public)
 RUN mkdir -p /ComfyUI/models/ipadapter && \
-    wget -q --header="Authorization: Bearer ${HF_TOKEN}" \
-    https://huggingface.co/InstantX/FLUX.1-dev-IP-Adapter/resolve/main/ip-adapter.bin \
+    wget -q https://huggingface.co/InstantX/FLUX.1-dev-IP-Adapter/resolve/main/ip-adapter.bin \
     -O /ComfyUI/models/ipadapter/ip-adapter_flux.safetensors
 
 # Copy files
