@@ -20,36 +20,34 @@ RUN cd /ComfyUI/custom_nodes/ComfyUI_IPAdapter_plus && \
 # Install handler dependencies (huggingface_hub must be installed before model downloads)
 RUN pip install runpod websocket-client Pillow "huggingface_hub[hf_transfer]"
 
-ENV PATH="/usr/local/bin:${PATH}"
-
 # Download FLUX.1 dev fp8 model
 RUN mkdir -p /ComfyUI/models/diffusion_models && \
-    huggingface-cli download Comfy-Org/flux1-dev \
+    python -m huggingface_hub.commands.huggingface_cli download Comfy-Org/flux1-dev \
     flux1-dev-fp8.safetensors \
     --local-dir /ComfyUI/models/diffusion_models
 
 # Download text encoders
 RUN mkdir -p /ComfyUI/models/text_encoders && \
-    huggingface-cli download Comfy-Org/flux_text_encoders \
+    python -m huggingface_hub.commands.huggingface_cli download Comfy-Org/flux_text_encoders \
     t5xxl_fp8_e4m3fn.safetensors \
     clip_l.safetensors \
     --local-dir /ComfyUI/models/text_encoders
 
 # Download VAE
 RUN mkdir -p /ComfyUI/models/vae && \
-    huggingface-cli download black-forest-labs/FLUX.1-dev \
+    python -m huggingface_hub.commands.huggingface_cli download black-forest-labs/FLUX.1-dev \
     ae.safetensors \
     --local-dir /ComfyUI/models/vae
 
 # Download CLIP Vision for IP-Adapter
 RUN mkdir -p /ComfyUI/models/clip_vision && \
-    huggingface-cli download Comfy-Org/sigclip_vision_384 \
+    python -m huggingface_hub.commands.huggingface_cli download Comfy-Org/sigclip_vision_384 \
     sigclip_vision_patch14_384.safetensors \
     --local-dir /ComfyUI/models/clip_vision
 
 # Download IP-Adapter model for FLUX
 RUN mkdir -p /ComfyUI/models/ipadapter && \
-    huggingface-cli download InstantX/FLUX.1-dev-IP-Adapter \
+    python -m huggingface_hub.commands.huggingface_cli download InstantX/FLUX.1-dev-IP-Adapter \
     ip-adapter.bin \
     --local-dir /ComfyUI/models/ipadapter && \
     mv /ComfyUI/models/ipadapter/ip-adapter.bin /ComfyUI/models/ipadapter/ip-adapter_flux.safetensors
